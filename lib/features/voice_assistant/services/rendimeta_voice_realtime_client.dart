@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import '../../../core/config/openai_voice_config.dart';
 import '../domain/rendimeta_assistant_snapshot.dart';
@@ -246,28 +247,40 @@ class RendimetaVoiceRealtimeClient {
       Uri.parse('https://api.openai.com/v1/realtime/calls'),
     );
     request.headers['Authorization'] = 'Bearer ${OpenAiVoiceConfig.apiKey}';
-    request.fields['sdp'] = sdp;
-    request.fields['session'] = jsonEncode({
-      'type': 'realtime',
-      'model': model,
-      'instructions': _buildInstructions(snapshot),
-      'output_modalities': ['audio'],
-      'max_output_tokens': 320,
-      'audio': {
-        'input': {
-          'transcription': {'model': OpenAiVoiceConfig.transcriptionModel},
-          'turn_detection': {
-            'type': 'server_vad',
-            'create_response': false,
-            'interrupt_response': false,
-            'silence_duration_ms': 1200,
-            'prefix_padding_ms': 500,
-            'idle_timeout_ms': 12000,
+    request.files.add(
+      http.MultipartFile.fromString(
+        'sdp',
+        sdp,
+        contentType: MediaType('application', 'sdp'),
+      ),
+    );
+    request.files.add(
+      http.MultipartFile.fromString(
+        'session',
+        jsonEncode({
+          'type': 'realtime',
+          'model': model,
+          'instructions': _buildInstructions(snapshot),
+          'output_modalities': ['audio'],
+          'max_output_tokens': 320,
+          'audio': {
+            'input': {
+              'transcription': {'model': OpenAiVoiceConfig.transcriptionModel},
+              'turn_detection': {
+                'type': 'server_vad',
+                'create_response': false,
+                'interrupt_response': false,
+                'silence_duration_ms': 1200,
+                'prefix_padding_ms': 500,
+                'idle_timeout_ms': 12000,
+              },
+            },
+            'output': {'voice': OpenAiVoiceConfig.voice},
           },
-        },
-        'output': {'voice': OpenAiVoiceConfig.voice},
-      },
-    });
+        }),
+        contentType: MediaType('application', 'json'),
+      ),
+    );
 
     http.StreamedResponse response;
     try {

@@ -143,6 +143,13 @@ class RendimetaVoiceAssistantController extends ChangeNotifier {
     if (raw.contains('429')) {
       return 'OpenAI está recibiendo muchas solicitudes. Intenta otra vez en un momento.';
     }
+    final normalized = raw.trim();
+    if (normalized.isNotEmpty) {
+      if (normalized.length <= 220) {
+        return normalized;
+      }
+      return '${normalized.substring(0, 217)}...';
+    }
     return 'No fue posible iniciar la sesión de voz.';
   }
 

@@ -20,6 +20,7 @@ class VoiceAssistantScreen extends StatefulWidget {
 class _VoiceAssistantScreenState extends State<VoiceAssistantScreen> {
   final RendimetaVoiceAssistantController _assistantController =
       RendimetaVoiceAssistantController();
+  bool _isClosing = false;
 
   RendimetaAssistantSnapshot get _snapshot =>
       RendimetaAssistantSnapshot.fromGameState(context.read<GameState>());
@@ -39,9 +40,14 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen> {
   }
 
   Future<void> _closeVoiceMode() async {
-    await _assistantController.endSession();
-    if (mounted) {
-      Navigator.of(context).pop();
+    if (_isClosing) return;
+    _isClosing = true;
+    try {
+      await _assistantController.endSession();
+    } finally {
+      if (mounted && Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
     }
   }
 
@@ -56,7 +62,8 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen> {
 
     return PopScope(
       canPop: false,
-      onPopInvokedWithResult: (_, _) async {
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop || _isClosing) return;
         await _closeVoiceMode();
       },
       child: AnimatedBuilder(

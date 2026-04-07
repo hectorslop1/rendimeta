@@ -26,6 +26,8 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Rendimeta necesita acceso a tu cámara</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Rendimeta usa el micrófono para que puedas hablar con tu coach de ventas por voz.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
