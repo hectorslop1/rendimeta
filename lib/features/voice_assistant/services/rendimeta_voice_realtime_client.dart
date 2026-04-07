@@ -198,29 +198,57 @@ class RendimetaVoiceRealtimeClient {
     required String sdp,
     required RendimetaAssistantSnapshot snapshot,
   }) async {
-    final candidateModels = <String>[
-      OpenAiVoiceConfig.realtimeModel,
-      OpenAiVoiceConfig.fallbackRealtimeModel,
+    final sessionPayload = jsonEncode({
+      'type': 'realtime',
+      'model': OpenAiVoiceConfig.realtimeModel,
+      'instructions': _buildInstructions(snapshot),
+      'output_modalities': ['audio'],
+      'max_output_tokens': 320,
+      'audio': {
+        'input': {
+          'transcription': {'model': OpenAiVoiceConfig.transcriptionModel},
+          'turn_detection': {
+            'type': 'server_vad',
+            'create_response': false,
+            'interrupt_response': false,
+            'silence_duration_ms': 1200,
+            'prefix_padding_ms': 500,
+            'idle_timeout_ms': 12000,
+          },
+        },
+        'output': {'voice': OpenAiVoiceConfig.voice},
+      },
+    });
+    final candidateAttempts = <({String model, bool typedParts})>[
+      (model: OpenAiVoiceConfig.realtimeModel, typedParts: false),
+      (model: OpenAiVoiceConfig.realtimeModel, typedParts: true),
+      (model: OpenAiVoiceConfig.fallbackRealtimeModel, typedParts: false),
+      (model: OpenAiVoiceConfig.fallbackRealtimeModel, typedParts: true),
     ];
-    final triedModels = <String>{};
+    final triedAttempts = <String>{};
     RealtimeVoiceCallException? lastError;
 
-    for (final model in candidateModels) {
-      if (!triedModels.add(model)) {
+    for (final attempt in candidateAttempts) {
+      final id = '${attempt.model}:${attempt.typedParts ? 'typed' : 'plain'}';
+      if (!triedAttempts.add(id)) {
         continue;
       }
 
       try {
         return await _createVoiceCallAttempt(
           sdp: sdp,
-          snapshot: snapshot,
-          model: model,
+          sessionPayload: sessionPayload.replaceFirst(
+            OpenAiVoiceConfig.realtimeModel,
+            attempt.model,
+          ),
+          model: attempt.model,
+          typedParts: attempt.typedParts,
         );
       } on RealtimeVoiceCallException catch (error) {
         lastError = error;
-        if (_shouldRetryWithFallback(error)) {
+        if (_shouldRetry(error, typedParts: attempt.typedParts)) {
           debugPrint(
-            'OpenAI Realtime rechazó el modelo $model. Intentando con ${OpenAiVoiceConfig.fallbackRealtimeModel}.',
+            'OpenAI Realtime falló con modelo=${attempt.model} variante=${attempt.typedParts ? 'typed' : 'plain'}. Reintentando.',
           );
           continue;
         }
@@ -239,48 +267,34 @@ class RendimetaVoiceRealtimeClient {
 
   Future<String> _createVoiceCallAttempt({
     required String sdp,
-    required RendimetaAssistantSnapshot snapshot,
+    required String sessionPayload,
     required String model,
+    required bool typedParts,
   }) async {
     final request = http.MultipartRequest(
       'POST',
       Uri.parse('https://api.openai.com/v1/realtime/calls'),
     );
     request.headers['Authorization'] = 'Bearer ${OpenAiVoiceConfig.apiKey}';
-    request.files.add(
-      http.MultipartFile.fromString(
-        'sdp',
-        sdp,
-        contentType: MediaType('application', 'sdp'),
-      ),
-    );
-    request.files.add(
-      http.MultipartFile.fromString(
-        'session',
-        jsonEncode({
-          'type': 'realtime',
-          'model': model,
-          'instructions': _buildInstructions(snapshot),
-          'output_modalities': ['audio'],
-          'max_output_tokens': 320,
-          'audio': {
-            'input': {
-              'transcription': {'model': OpenAiVoiceConfig.transcriptionModel},
-              'turn_detection': {
-                'type': 'server_vad',
-                'create_response': false,
-                'interrupt_response': false,
-                'silence_duration_ms': 1200,
-                'prefix_padding_ms': 500,
-                'idle_timeout_ms': 12000,
-              },
-            },
-            'output': {'voice': OpenAiVoiceConfig.voice},
-          },
-        }),
-        contentType: MediaType('application', 'json'),
-      ),
-    );
+    if (typedParts) {
+      request.files.add(
+        http.MultipartFile.fromString(
+          'sdp',
+          sdp,
+          contentType: MediaType('application', 'sdp'),
+        ),
+      );
+      request.files.add(
+        http.MultipartFile.fromString(
+          'session',
+          sessionPayload,
+          contentType: MediaType('application', 'json'),
+        ),
+      );
+    } else {
+      request.fields['sdp'] = sdp;
+      request.fields['session'] = sessionPayload;
+    }
 
     http.StreamedResponse response;
     try {
@@ -306,11 +320,11 @@ class RendimetaVoiceRealtimeClient {
     }
 
     final body = await response.stream.bytesToString();
-    final answer = body.trim();
+    final answer = _extractSdpAnswer(body);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final message = _extractRealtimeErrorMessage(body);
       debugPrint(
-        'OpenAI Realtime create-call fallo (${response.statusCode}) modelo=$model: $message',
+        'OpenAI Realtime create-call fallo (${response.statusCode}) modelo=$model variante=${typedParts ? 'typed' : 'plain'}: $message',
       );
       throw RealtimeVoiceCallException(
         message: message,
@@ -320,9 +334,10 @@ class RendimetaVoiceRealtimeClient {
       );
     }
 
-    if (answer.isEmpty) {
+    if (answer == null) {
       throw RealtimeVoiceCallException(
-        message: 'OpenAI respondió sin un SDP válido para la llamada.',
+        message:
+            'OpenAI respondió, pero no devolvió un SDP válido para la llamada. Respuesta: ${_extractRealtimeErrorMessage(body)}',
         statusCode: response.statusCode,
         rawBody: body,
         attemptedModel: model,
@@ -332,15 +347,25 @@ class RendimetaVoiceRealtimeClient {
     return answer;
   }
 
-  bool _shouldRetryWithFallback(RealtimeVoiceCallException error) {
+  bool _shouldRetry(
+    RealtimeVoiceCallException error, {
+    required bool typedParts,
+  }) {
     final attemptedModel = error.attemptedModel;
     final fallbackModel = OpenAiVoiceConfig.fallbackRealtimeModel;
+    final message = error.message.toLowerCase();
+    final statusCode = error.statusCode;
+
+    if (!typedParts &&
+        (statusCode == null ||
+            (statusCode >= 200 && statusCode < 300) ||
+            statusCode == 400)) {
+      return true;
+    }
+
     if (attemptedModel == null || attemptedModel == fallbackModel) {
       return false;
     }
-
-    final message = error.message.toLowerCase();
-    final statusCode = error.statusCode;
 
     if (statusCode == 400 || statusCode == 404) {
       return message.contains('model') ||
@@ -381,6 +406,37 @@ class RendimetaVoiceRealtimeClient {
     }
 
     return '${trimmed.substring(0, 217)}...';
+  }
+
+  String? _extractSdpAnswer(String body) {
+    if (body.startsWith('v=0')) {
+      return body;
+    }
+
+    final trimmed = body.trim();
+    if (trimmed.startsWith('v=0')) {
+      return trimmed;
+    }
+
+    try {
+      final decoded = jsonDecode(trimmed);
+      if (decoded is Map<String, dynamic>) {
+        final direct = decoded['sdp']?.toString();
+        if (direct != null && direct.trim().startsWith('v=0')) {
+          return direct;
+        }
+
+        final answer = decoded['answer'];
+        if (answer is Map<String, dynamic>) {
+          final nested = answer['sdp']?.toString();
+          if (nested != null && nested.trim().startsWith('v=0')) {
+            return nested;
+          }
+        }
+      }
+    } catch (_) {}
+
+    return null;
   }
 
   String _buildInstructions(RendimetaAssistantSnapshot snapshot) {
