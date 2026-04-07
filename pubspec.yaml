@@ -17,6 +17,9 @@ dependencies:
   percent_indicator: ^4.2.3
   workfire: ^1.0.2
   reward_popup: ^0.0.7
+  flutter_dotenv: ^5.2.1
+  flutter_webrtc: ^1.4.0
+  http: ^1.5.0
 
 dev_dependencies:
   flutter_test:
@@ -26,5 +29,6 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - .env
     - assets/images/rendichicas-logo.png
-    - assets/images/rendimetaIconlogo.png
+    - assets/images/RendiMetaIconLogo.png

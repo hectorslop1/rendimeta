@@ -3,6 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/haptics.dart';
 import '../../theme/app_colors.dart';
+import '../voice_assistant/presentation/voice_assistant_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -136,6 +137,13 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  Future<void> _openVoiceAssistant() async {
+    Haptics.selection();
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const VoiceAssistantScreen()),
+    );
+  }
+
   String _formatNow() {
     final now = DateTime.now();
     final h = now.hour > 12 ? now.hour - 12 : now.hour;
@@ -197,6 +205,42 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
           const Spacer(),
+          GestureDetector(
+            onTap: _openVoiceAssistant,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                gradient: AppColors.primaryGradient,
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.24),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.graphic_eq_rounded,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'IA Voz',
+                    style: GoogleFonts.manrope(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
           Container(
             width: 10,
             height: 10,

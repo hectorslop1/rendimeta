@@ -181,7 +181,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               ],
                             ),
                             child: Image.asset(
-                              'assets/images/rendimetaIconlogo.png',
+                              'assets/images/RendiMetaIconLogo.png',
                               fit: BoxFit.contain,
                             ),
                           )
